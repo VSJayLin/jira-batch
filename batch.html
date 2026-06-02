@@ -248,11 +248,12 @@ function importExcel(input) {
 
       // Column mapping
       const colIdx = {
-        summary:  headers.findIndex(h => h.includes('资料文件') || h.includes('名称') || h.includes('summary')),
-        desc:     headers.findIndex(h => h.includes('要求') || h.includes('说明') || h.includes('description') || h.includes('desc')),
-        duedate:  headers.findIndex(h => h.includes('计划') || h.includes('完成时间') || h.includes('due') || h.includes('date')),
-        phase:    headers.findIndex(h => h.includes('阶段') || h.includes('phase')),
-        assignee: headers.findIndex(h => h.includes('负责') || h.includes('assignee')),
+        summary:   headers.findIndex(h => h.includes('资料文件') || h.includes('名称') || h.includes('summary')),
+        desc:      headers.findIndex(h => h.includes('要求') || h.includes('说明') || h.includes('description') || h.includes('desc')),
+        issueType: headers.findIndex(h => h.includes('類型') || h.includes('类型') || h.includes('type')),
+        duedate:   headers.findIndex(h => h.includes('计划') || h.includes('完成时间') || h.includes('due') || (h.includes('date') && !h.includes('实际'))),
+        phase:     headers.findIndex(h => h.includes('阶段') || h.includes('phase')),
+        assignee:  headers.findIndex(h => h.includes('负责') || h.includes('assignee')),
       };
 
       // Excel serial date to YYYY-MM-DD
@@ -277,14 +278,21 @@ function importExcel(input) {
         const row = rows[i];
         if (!row || row.every(c => !c)) continue;
 
-        const summary = colIdx.summary >= 0 ? String(row[colIdx.summary] || '').trim() : '';
+        const summary   = colIdx.summary   >= 0 ? String(row[colIdx.summary]   || '').trim() : '';
         if (!summary) continue;
 
-        const desc    = colIdx.desc     >= 0 ? String(row[colIdx.desc]     || '').trim() : '';
-        const duedate = colIdx.duedate  >= 0 ? excelDateToStr(row[colIdx.duedate]) : '';
-        const phase   = colIdx.phase    >= 0 ? String(row[colIdx.phase]    || '').trim() : '';
+        const desc      = colIdx.desc      >= 0 ? String(row[colIdx.desc]      || '').trim() : '';
+        const duedate   = colIdx.duedate   >= 0 ? excelDateToStr(row[colIdx.duedate]) : '';
+        const issueTypeStr = colIdx.issueType >= 0 ? String(row[colIdx.issueType] || '').trim() : '';
 
-        addRow(summary, desc, duedate);
+        // Auto-match issue type name to Jira issue type id (case-insensitive partial match)
+        const matchedType = meta.issueTypes.find(t =>
+          t.name.toLowerCase() === issueTypeStr.toLowerCase() ||
+          t.name.toLowerCase().includes(issueTypeStr.toLowerCase()) ||
+          issueTypeStr.toLowerCase().includes(t.name.toLowerCase())
+        );
+
+        addRow(summary, desc, duedate, matchedType?.id || '');
         imported++;
       }
 
@@ -426,7 +434,7 @@ function makeOpts(arr, valueKey, labelFn, placeholder='—') {
       .map(x=>`<option value="${x[valueKey]}">${labelFn(x)}</option>`).join('');
 }
 
-function addRow(defaultSummary='', defaultDesc='', defaultDuedate='') {
+function addRow(defaultSummary='', defaultDesc='', defaultDuedate='', defaultIssueTypeId='') {
   rowId++;
   const id = rowId;
   const tr = document.createElement('tr');
@@ -434,7 +442,7 @@ function addRow(defaultSummary='', defaultDesc='', defaultDuedate='') {
 
   const typeOpts = `<option value="">請選擇...</option>` +
     [...meta.issueTypes].sort((a,b)=>a.name.localeCompare(b.name))
-      .map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
+      .map(t=>`<option value="${t.id}" ${t.id===defaultIssueTypeId?'selected':''}>${t.name}</option>`).join('');
   const prioOpts = makeOpts(meta.priorities, 'id', p=>p.name);
   const userOpts = makeOpts(meta.assignees, 'accountId', u=>u.displayName, '不指派');
 
