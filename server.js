@@ -90,6 +90,39 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET /projects — list all accessible projects
+  if (req.method === 'GET' && parsed.pathname === '/projects') {
+    const options = {
+      hostname: JIRA_DOMAIN,
+      path: '/rest/api/3/project?maxResults=100&orderBy=name',
+      method: 'GET',
+      headers: { 'Authorization': 'Basic ' + AUTH, 'Accept': 'application/json' }
+    };
+    const apiReq = https.request(options, (r) => {
+      let body = '';
+      r.on('data', chunk => body += chunk);
+      r.on('end', () => {
+        try {
+          const data = JSON.parse(body);
+          const projects = (Array.isArray(data) ? data : (data.values || [])).map(p => ({
+            key: p.key, name: p.name, id: p.id
+          }));
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify(projects));
+        } catch(e) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: e.message }));
+        }
+      });
+    });
+    apiReq.on('error', (e) => {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    });
+    apiReq.end();
+    return;
+  }
+
   // GET /meta?project=OK — get issue types, priorities, assignable users
   if (req.method === 'GET' && parsed.pathname === '/meta') {
     const project = parsed.query.project || 'OK';
