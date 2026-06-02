@@ -250,10 +250,11 @@ function importExcel(input) {
       const colIdx = {
         summary:   headers.findIndex(h => h.includes('资料文件') || h.includes('名称') || h.includes('summary')),
         desc:      headers.findIndex(h => h.includes('要求') || h.includes('说明') || h.includes('description') || h.includes('desc')),
-        issueType: headers.findIndex(h => h.includes('類型') || h.includes('类型') || h.includes('type')),
-        duedate:   headers.findIndex(h => h.includes('计划') || h.includes('完成时间') || h.includes('due') || (h.includes('date') && !h.includes('实际'))),
+        issueType: headers.findIndex(h => h.includes('類型') || h.includes('类型') || h.includes('issue type') || h.includes('type')),
+        duedate:   headers.findIndex(h => h.includes('计划') || h.includes('due date') || h.includes('完成时间') && !h.includes('实际')),
         phase:     headers.findIndex(h => h.includes('阶段') || h.includes('phase')),
         assignee:  headers.findIndex(h => h.includes('负责') || h.includes('assignee')),
+        priority:  headers.findIndex(h => h === 'priority' || h.includes('優先') || h.includes('优先')),
       };
 
       // Excel serial date to YYYY-MM-DD
@@ -278,13 +279,14 @@ function importExcel(input) {
         const row = rows[i];
         if (!row || row.every(c => !c)) continue;
 
-        const summary   = colIdx.summary   >= 0 ? String(row[colIdx.summary]   || '').trim() : '';
+        const summary      = colIdx.summary   >= 0 ? String(row[colIdx.summary]   || '').trim() : '';
         if (!summary) continue;
 
         const desc         = colIdx.desc      >= 0 ? String(row[colIdx.desc]      || '').trim() : '';
         const duedate      = colIdx.duedate   >= 0 ? excelDateToStr(row[colIdx.duedate]) : '';
         const issueTypeStr = colIdx.issueType >= 0 ? String(row[colIdx.issueType] || '').trim() : '';
         const assigneeStr  = colIdx.assignee  >= 0 ? String(row[colIdx.assignee]  || '').trim() : '';
+        const priorityStr  = colIdx.priority  >= 0 ? String(row[colIdx.priority]  || '').trim() : '';
 
         // Auto-match issue type
         const matchedType = meta.issueTypes.find(t =>
@@ -293,14 +295,21 @@ function importExcel(input) {
           issueTypeStr.toLowerCase().includes(t.name.toLowerCase())
         );
 
-        // Auto-match assignee (match displayName partially, e.g. "KTC" won't match, "Nami Liao" will)
+        // Auto-match assignee
         const matchedAssignee = assigneeStr ? meta.assignees.find(u =>
           u.displayName.toLowerCase() === assigneeStr.toLowerCase() ||
           u.displayName.toLowerCase().includes(assigneeStr.toLowerCase()) ||
           assigneeStr.toLowerCase().includes(u.displayName.toLowerCase())
         ) : null;
 
-        addRow(summary, desc, duedate, matchedType?.id || '', matchedAssignee?.accountId || '');
+        // Auto-match priority
+        const matchedPriority = priorityStr ? meta.priorities.find(p =>
+          p.name.toLowerCase() === priorityStr.toLowerCase() ||
+          p.name.toLowerCase().includes(priorityStr.toLowerCase()) ||
+          priorityStr.toLowerCase().includes(p.name.toLowerCase())
+        ) : null;
+
+        addRow(summary, desc, duedate, matchedType?.id || '', matchedAssignee?.accountId || '', matchedPriority?.id || '');
         imported++;
       }
 
@@ -442,7 +451,7 @@ function makeOpts(arr, valueKey, labelFn, placeholder='—') {
       .map(x=>`<option value="${x[valueKey]}">${labelFn(x)}</option>`).join('');
 }
 
-function addRow(defaultSummary='', defaultDesc='', defaultDuedate='', defaultIssueTypeId='', defaultAssigneeId='') {
+function addRow(defaultSummary='', defaultDesc='', defaultDuedate='', defaultIssueTypeId='', defaultAssigneeId='', defaultPriorityId='') {
   rowId++;
   const id = rowId;
   const tr = document.createElement('tr');
@@ -451,7 +460,8 @@ function addRow(defaultSummary='', defaultDesc='', defaultDuedate='', defaultIss
   const typeOpts = `<option value="">請選擇...</option>` +
     [...meta.issueTypes].sort((a,b)=>a.name.localeCompare(b.name))
       .map(t=>`<option value="${t.id}" ${t.id===defaultIssueTypeId?'selected':''}>${t.name}</option>`).join('');
-  const prioOpts = makeOpts(meta.priorities, 'id', p=>p.name);
+  const prioOpts = `<option value="">—</option>` +
+    [...meta.priorities].map(p=>`<option value="${p.id}" ${p.id===defaultPriorityId?'selected':''}>${p.name}</option>`).join('');
   const userOpts = `<option value="">不指派</option>` +
     [...meta.assignees].sort((a,b)=>a.displayName.localeCompare(b.displayName))
       .map(u=>`<option value="${u.accountId}" ${u.accountId===defaultAssigneeId?'selected':''}>${u.displayName}</option>`).join('');
