@@ -288,32 +288,44 @@ const server = http.createServer(async (req, res) => {
         return { fields };
       });
 
-      const data = JSON.stringify({ issueUpdates: issueList });
-      const options = {
-        hostname: JIRA_DOMAIN,
-        path: '/rest/api/3/issue/bulk',
-        method: 'POST',
-        headers: {
-          'Authorization': 'Basic ' + AUTH,
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(data)
-        }
-      };
-      const apiReq = https.request(options, (r) => {
-        let respBody = '';
-        r.on('data', chunk => respBody += chunk);
-        r.on('end', () => {
-          res.writeHead(r.statusCode, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-          res.end(respBody);
+      const BATCH_SIZE = 50;
+      const allResults = { issues: [], errors: [] };
+
+      for (let i = 0; i < issueList.length; i += BATCH_SIZE) {
+        const batch = issueList.slice(i, i + BATCH_SIZE);
+        const data = JSON.stringify({ issueUpdates: batch });
+        const options = {
+          hostname: JIRA_DOMAIN,
+          path: '/rest/api/3/issue/bulk',
+          method: 'POST',
+          headers: {
+            'Authorization': 'Basic ' + AUTH,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(data)
+          }
+        };
+
+        const result = await new Promise((resolve) => {
+          const apiReq = https.request(options, (r) => {
+            let respBody = '';
+            r.on('data', chunk => respBody += chunk);
+            r.on('end', () => {
+              try { resolve(JSON.parse(respBody)); }
+              catch(e) { resolve({ issues: [], errors: [] }); }
+            });
+          });
+          apiReq.on('error', () => resolve({ issues: [], errors: [] }));
+          apiReq.write(data);
+          apiReq.end();
         });
-      });
-      apiReq.on('error', (e) => {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
-      });
-      apiReq.write(data);
-      apiReq.end();
+
+        allResults.issues.push(...(result.issues || []));
+        allResults.errors.push(...(result.errors || []));
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify(allResults));
     } catch(e) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message }));
