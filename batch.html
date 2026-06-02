@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ODM KTC · 批次建立 Tickets</title>
+<title>JIRA Creator</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#f4f5f7;--surf:#fff;--surf2:#f8f9fa;--bdr:#dfe1e6;--text:#172b4d;--muted:#6b778c;--dim:#42526e;--acc:#0052CC;}
@@ -95,7 +95,7 @@ td{padding:7px 8px;vertical-align:middle;}
 <body>
 <div class="topbar">
   <div class="logo"><svg viewBox="0 0 24 24"><path d="M11.571 11.513H0a5.218 5.218 0 005.232 5.215h2.13v2.056A5.215 5.215 0 0012.575 24V12.518a1.005 1.005 0 00-1.004-1.005zm5.723-5.756H5.757a5.215 5.215 0 005.214 5.214h2.13v2.057a5.215 5.215 0 005.215 5.214V6.762a1.005 1.005 0 00-1.022-1.005zM23.013 0H11.455a5.215 5.215 0 005.215 5.215h2.129v2.057A5.215 5.215 0 0024 12.486V1.005A1.005 1.005 0 0023.013 0z"/></svg></div>
-  <span class="tb-title">ODM KTC</span>
+  <span class="tb-title">JIRA Creator</span>
   <div class="tb-sep"></div>
   <span class="tb-sub">批次建立 Tickets</span>
 </div>
@@ -147,6 +147,17 @@ td{padding:7px 8px;vertical-align:middle;}
   <div class="card hidden" id="card2">
     <div class="card-title">Step 2 — 填寫 Ticket 資料</div>
     <div class="card-desc" id="card2Desc">每一列代表一張 ticket，<span style="color:#de350b">*</span> 為必填。</div>
+
+    <!-- Excel import -->
+    <div style="margin-bottom:16px;padding:14px 16px;background:var(--surf2);border:1px solid var(--bdr);border-radius:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <span style="font-size:13px;color:var(--dim);font-weight:500;">📂 匯入 Excel</span>
+      <span style="font-size:12px;color:var(--muted);">支援 IFPG1-2 Documents 格式，自動對應 Summary / Description / Due Date 欄位</span>
+      <label style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;background:#0052CC;border-radius:6px;color:white;font-size:12px;cursor:pointer;transition:background .15s;" onmouseover="this.style.background='#0065ff'" onmouseout="this.style.background='#0052CC'">
+        ⬆ 選擇 Excel 檔案
+        <input type="file" accept=".xlsx,.xls" style="display:none" onchange="importExcel(this)">
+      </label>
+      <span id="importStatus" style="font-size:12px;color:var(--muted)"></span>
+    </div>
 
     <div class="tbl-wrap">
       <table id="inputTable">
@@ -201,11 +212,94 @@ td{padding:7px 8px;vertical-align:middle;}
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 const SERVER = 'https://jira-batch.onrender.com';
 let meta = { issueTypes:[], priorities:[], assignees:[] };
 let selectedProject = '', selectedBoard = '', selectedEpic = '';
 let rowId = 0;
+
+// ── Excel import ──
+function importExcel(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const status = document.getElementById('importStatus');
+  status.textContent = '解析中...';
+  status.style.color = 'var(--muted)';
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+      // Find header row (contains 资料文件 or Item)
+      let headerIdx = -1;
+      for (let i = 0; i < Math.min(rows.length, 10); i++) {
+        const row = rows[i].map(c => String(c).trim());
+        if (row.some(c => c.includes('资料') || c.includes('Item') || c.includes('Summary'))) {
+          headerIdx = i; break;
+        }
+      }
+      if (headerIdx === -1) headerIdx = 1; // fallback to row 2
+
+      const headers = rows[headerIdx].map(c => String(c).trim().toLowerCase());
+
+      // Column mapping
+      const colIdx = {
+        summary:  headers.findIndex(h => h.includes('资料文件') || h.includes('名称') || h.includes('summary')),
+        desc:     headers.findIndex(h => h.includes('要求') || h.includes('说明') || h.includes('description') || h.includes('desc')),
+        duedate:  headers.findIndex(h => h.includes('计划') || h.includes('完成时间') || h.includes('due') || h.includes('date')),
+        phase:    headers.findIndex(h => h.includes('阶段') || h.includes('phase')),
+        assignee: headers.findIndex(h => h.includes('负责') || h.includes('assignee')),
+      };
+
+      // Excel serial date to YYYY-MM-DD
+      function excelDateToStr(val) {
+        if (!val) return '';
+        if (val instanceof Date) return val.toISOString().slice(0, 10);
+        if (typeof val === 'number' && val > 40000) {
+          const d = XLSX.SSF.parse_date_code(val);
+          if (d) return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+        }
+        const s = String(val).trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+        return '';
+      }
+
+      // Clear existing rows
+      document.getElementById('inputBody').innerHTML = '';
+      rowId = 0;
+
+      let imported = 0;
+      for (let i = headerIdx + 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row || row.every(c => !c)) continue;
+
+        const summary = colIdx.summary >= 0 ? String(row[colIdx.summary] || '').trim() : '';
+        if (!summary) continue;
+
+        const desc    = colIdx.desc     >= 0 ? String(row[colIdx.desc]     || '').trim() : '';
+        const duedate = colIdx.duedate  >= 0 ? excelDateToStr(row[colIdx.duedate]) : '';
+        const phase   = colIdx.phase    >= 0 ? String(row[colIdx.phase]    || '').trim() : '';
+
+        addRow(summary, desc, duedate);
+        imported++;
+      }
+
+      updateCount();
+      updateSummary();
+      status.textContent = `✅ 已匯入 ${imported} 筆資料`;
+      status.style.color = '#006644';
+    } catch(err) {
+      status.textContent = '❌ 解析失敗：' + err.message;
+      status.style.color = '#bf2600';
+    }
+    input.value = ''; // reset file input
+  };
+  reader.readAsArrayBuffer(file);
+}
 
 // ── Load projects ──
 async function loadProjects() {
@@ -332,7 +426,7 @@ function makeOpts(arr, valueKey, labelFn, placeholder='—') {
       .map(x=>`<option value="${x[valueKey]}">${labelFn(x)}</option>`).join('');
 }
 
-function addRow() {
+function addRow(defaultSummary='', defaultDesc='', defaultDuedate='') {
   rowId++;
   const id = rowId;
   const tr = document.createElement('tr');
@@ -344,14 +438,16 @@ function addRow() {
   const prioOpts = makeOpts(meta.priorities, 'id', p=>p.name);
   const userOpts = makeOpts(meta.assignees, 'accountId', u=>u.displayName, '不指派');
 
+  const esc = s => s.replace(/"/g,'&quot;').replace(/</g,'&lt;');
+
   tr.innerHTML = `
     <td class="row-num">${id}</td>
-    <td><input class="cell-input" id="s-${id}" placeholder="Ticket 標題..." oninput="updateSummary()"></td>
-    <td><input class="cell-input" id="d-${id}" placeholder="描述（選填）"></td>
+    <td><input class="cell-input" id="s-${id}" placeholder="Ticket 標題..." value="${esc(defaultSummary)}" oninput="updateSummary()"></td>
+    <td><input class="cell-input" id="d-${id}" placeholder="描述（選填）" value="${esc(defaultDesc)}"></td>
     <td><select class="cell-select" id="t-${id}"><option value="">請選擇...</option>${typeOpts}</select></td>
     <td><select class="cell-select" id="p-${id}">${prioOpts}</select></td>
     <td><select class="cell-select" id="a-${id}">${userOpts}</select></td>
-    <td><input class="cell-input" id="dd-${id}" type="date" style="font-family:'IBM Plex Mono',monospace;font-size:11px"></td>
+    <td><input class="cell-input" id="dd-${id}" type="date" value="${defaultDuedate}" style="font-family:'IBM Plex Mono',monospace;font-size:11px"></td>
     <td><button class="remove-btn" onclick="removeRow(${id})">✕</button></td>`;
   document.getElementById('inputBody').appendChild(tr);
   updateCount();
