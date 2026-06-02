@@ -535,8 +535,19 @@ async function submitBatch() {
 }
 
 function renderResult(data, rows) {
-  const created = data.issues||[];
-  const errors  = data.errors ||[];
+  const created = Array.isArray(data.issues) ? data.issues : [];
+  const errors  = Array.isArray(data.errors) ? data.errors : [];
+
+  // If top-level error message
+  if (data.errorMessages?.length || data.errors && !Array.isArray(data.errors)) {
+    const msg = data.errorMessages?.[0] || JSON.stringify(data.errors) || '未知錯誤';
+    document.getElementById('resultStats').innerHTML = `<span class="stat-fail">❌ 建立失敗：${msg}</span>`;
+    document.getElementById('resultList').innerHTML = '';
+    document.getElementById('card3').classList.remove('hidden');
+    document.getElementById('card3').scrollIntoView({behavior:'smooth'});
+    return;
+  }
+
   document.getElementById('resultStats').innerHTML = `
     <span class="stat-ok">✅ 成功建立 ${created.length} 筆</span>
     ${errors.length>0?`<span class="stat-fail">❌ 失敗 ${errors.length} 筆</span>`:''}`;
