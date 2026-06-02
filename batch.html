@@ -281,18 +281,26 @@ function importExcel(input) {
         const summary   = colIdx.summary   >= 0 ? String(row[colIdx.summary]   || '').trim() : '';
         if (!summary) continue;
 
-        const desc      = colIdx.desc      >= 0 ? String(row[colIdx.desc]      || '').trim() : '';
-        const duedate   = colIdx.duedate   >= 0 ? excelDateToStr(row[colIdx.duedate]) : '';
+        const desc         = colIdx.desc      >= 0 ? String(row[colIdx.desc]      || '').trim() : '';
+        const duedate      = colIdx.duedate   >= 0 ? excelDateToStr(row[colIdx.duedate]) : '';
         const issueTypeStr = colIdx.issueType >= 0 ? String(row[colIdx.issueType] || '').trim() : '';
+        const assigneeStr  = colIdx.assignee  >= 0 ? String(row[colIdx.assignee]  || '').trim() : '';
 
-        // Auto-match issue type name to Jira issue type id (case-insensitive partial match)
+        // Auto-match issue type
         const matchedType = meta.issueTypes.find(t =>
           t.name.toLowerCase() === issueTypeStr.toLowerCase() ||
           t.name.toLowerCase().includes(issueTypeStr.toLowerCase()) ||
           issueTypeStr.toLowerCase().includes(t.name.toLowerCase())
         );
 
-        addRow(summary, desc, duedate, matchedType?.id || '');
+        // Auto-match assignee (match displayName partially, e.g. "KTC" won't match, "Nami Liao" will)
+        const matchedAssignee = assigneeStr ? meta.assignees.find(u =>
+          u.displayName.toLowerCase() === assigneeStr.toLowerCase() ||
+          u.displayName.toLowerCase().includes(assigneeStr.toLowerCase()) ||
+          assigneeStr.toLowerCase().includes(u.displayName.toLowerCase())
+        ) : null;
+
+        addRow(summary, desc, duedate, matchedType?.id || '', matchedAssignee?.accountId || '');
         imported++;
       }
 
@@ -434,7 +442,7 @@ function makeOpts(arr, valueKey, labelFn, placeholder='—') {
       .map(x=>`<option value="${x[valueKey]}">${labelFn(x)}</option>`).join('');
 }
 
-function addRow(defaultSummary='', defaultDesc='', defaultDuedate='', defaultIssueTypeId='') {
+function addRow(defaultSummary='', defaultDesc='', defaultDuedate='', defaultIssueTypeId='', defaultAssigneeId='') {
   rowId++;
   const id = rowId;
   const tr = document.createElement('tr');
@@ -444,7 +452,9 @@ function addRow(defaultSummary='', defaultDesc='', defaultDuedate='', defaultIss
     [...meta.issueTypes].sort((a,b)=>a.name.localeCompare(b.name))
       .map(t=>`<option value="${t.id}" ${t.id===defaultIssueTypeId?'selected':''}>${t.name}</option>`).join('');
   const prioOpts = makeOpts(meta.priorities, 'id', p=>p.name);
-  const userOpts = makeOpts(meta.assignees, 'accountId', u=>u.displayName, '不指派');
+  const userOpts = `<option value="">不指派</option>` +
+    [...meta.assignees].sort((a,b)=>a.displayName.localeCompare(b.displayName))
+      .map(u=>`<option value="${u.accountId}" ${u.accountId===defaultAssigneeId?'selected':''}>${u.displayName}</option>`).join('');
 
   const esc = s => s.replace(/"/g,'&quot;').replace(/</g,'&lt;');
 
